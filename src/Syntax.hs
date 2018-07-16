@@ -2,6 +2,7 @@
 {-# language OverloadedLists #-}
 {-# language RecordWildCards #-}
 {-# language LambdaCase #-}
+{-# language GADTs #-}
 {-# options_ghc -fwarn-incomplete-patterns #-}
 module Syntax where
 
@@ -80,5 +81,57 @@ isSentence g = go (topLevel g) [] Nothing
       case op of
         Union as -> or . fmap (\a -> go goal os (Just a) ss) $ Set.toList as
         _ -> op `is` a && go goal (b:operators) Nothing ss
+    go goal (a : operators) (Just op) ss = False
+    go goal (a : operators) Nothing ss = go goal operators (Just a) ss
+    -- go goal operators operand ss = error $ show (goal, operators, operand, ss)
+
+data Expr = Lam String Expr | App Expr Expr | Var String
+  deriving (Eq, Show)
+
+{-
+data Category'
+  = Expression'
+  | Atom'
+  | Exact' Symbol
+  | Union' (Set Category')
+  | Empty'
+  | OnR' Category' Category'
+  | Ident' (String -> Expr)
+  deriving (Eq, Show, Ord)
+
+data Grammar'
+  = Grammar'
+  { infer' :: Symbol -> Category'
+  , topLevel' :: Category'
+  }
+
+lc' :: Grammar'
+lc' = Grammar'{..}
+  where
+    infer' s@(Symbol ds) | not (null ds), all isDigit ds = Union [Atom, fix $ \x -> OnR Atom (Union [Expression, x])]
+    infer' s@(Symbol cs) | not (null cs), all isLetter cs = Union [Ident, fix $ \x -> OnR Atom (Union [Expression, x])]
+    infer' s@(Symbol "\\") = OnR Ident (OnR (Exact ".") (OnR Expression Expression))
+    infer' s@(Symbol "(") = OnR Expression (OnR (Exact ")") (Union [Atom, fix $ \x -> OnR Atom (Union [Expression, x])]))
+    infer' s = Exact s
+
+    topLevel' = Expression
+
+parse :: Grammar -> [Symbol] -> Maybe Expr
+parse g = go (topLevel g) [] Nothing
+  where
+    go goal [] Nothing [] = True
+    go goal [] Nothing (s:ss) = go goal [infer g s] Nothing ss
+    go goal [] (Just x) [] =
+      case x of
+        Union as -> or . fmap (\a -> go goal [] (Just a) []) $ Set.toList as
+        _ -> x `is` goal
+    go goal [] (Just x) (s:ss) = False
+    go goal (Union as : operators) operand ss = or $ fmap (\a -> go goal (a : operators) operand ss) $ Set.toList as
+    go goal os@(OnR a b : operators) Nothing (s:ss) = go goal (infer g s : os) Nothing ss
+    go goal os@(OnR a b : operators) (Just op) ss =
+      case op of
+        Union as -> or . fmap (\a -> go goal os (Just a) ss) $ Set.toList as
+        _ -> op `is` a && go goal (b:operators) Nothing ss
     go goal (a : operators) Nothing ss = go goal operators (Just a) ss
     go goal operators operand ss = error $ show (goal, operators, operand, ss)
+-}
