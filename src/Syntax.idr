@@ -420,6 +420,27 @@ parse g = go (topLevel' g) Nothing
         Arrow' a b =>
           case infer' g x of
             Nothing => []
+            Just (_ ** tm' ** Arrow' a' b') =>
+              case is' b' a of
+                Nothing => []
+                Just f => go goal (Just (_ ** tm . f . tm' ** Arrow' a' b)) xs
+            Just (_ ** tm' ** Many' a' b') =>
+              case is' (Many' a' b') a of
+                Nothing => []
+                Just f =>
+                  case tm' of
+                    MkMoore v h =>
+                      assert_total $
+                      go goal (Just (_ ** tm (f (constM v)) ** b)) xs ++
+                      go goal (Just (_ ** tm . f . h ** Arrow' a' b)) xs
+            Just (_ ** tm' ** Union' a' b') =>
+              assert_total $
+              (case is' a' a of
+                 Nothing => []
+                 Just f => go goal (Just (_ ** tm (f $ fst tm') ** b)) xs) ++
+              (case is' b' a of
+                 Nothing => []
+                 Just f => go goal (Just (_ ** tm (f $ snd tm') ** b)) xs)
             Just (_ ** tm' ** cat') =>
               case is' cat' a of
                 Nothing => []
@@ -428,7 +449,7 @@ parse g = go (topLevel' g) Nothing
           assert_total $
           go goal (Just (_ ** fst tm ** a)) (x :: xs) ++
           go goal (Just (_ ** snd tm ** b)) (x :: xs)
-        Many' a b => 
+        Many' a b =>
           case tm of
             MkMoore v f =>
               assert_total $
@@ -439,6 +460,18 @@ parse g = go (topLevel' g) Nothing
 
 foldlM : (b -> a -> b) -> b -> Moore a b
 foldlM f a = assert_total $ MkMoore a $ foldlM f . f a
+
+testGrammar : Grammar' Expr
+testGrammar = MkGrammar' infer'' Expression'
+  where
+    infer'' : String -> Maybe (a : Type ** x : a ** Category' a)
+    -- works
+    -- infer'' a = Just (_ ** (V a, foldlM App (V a)) ** Union' Atom' (Many' Atom' Expression'))
+    infer'' "(" = Just (_ ** \e, _ => e ** Arrow' Expression' (Arrow' (Exact' ")") Expression'))
+    infer'' a =
+      if all isAlpha (unpack a)
+      then Just (_ ** V a ** Atom')
+      else Just (_ ** a ** Exact' a)
 
 lc' : Grammar' Expr
 lc' = MkGrammar' infer'' Expression'
@@ -469,14 +502,16 @@ lc' = MkGrammar' infer'' Expression'
         "(" =>
           Just
             ( _ **
-              \e, _ => foldlM App e **
+              -- \e, _ => foldlM App e **
+              \e, _ => e **
               Arrow'
                 Expression'
                 (Arrow'
                    (Exact' ")")
-                   (Many'
-                      Atom'
-                      Expression'))
+                   Expression')
+                   -- (Many'
+                      -- Atom'
+                      -- Expression'))
             )
         _ => Just (_ ** cs ** Exact' cs)
 
