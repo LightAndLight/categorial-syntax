@@ -335,6 +335,7 @@ done
 -}
 
 data Moore a b = MkMoore b (a -> Moore a b)
+data Moore1 a b c = MkMoore1 a (b -> Moore b c)
 
 Functor (Moore a) where
   map f (MkMoore b g) = assert_total $ MkMoore (f b) (map f . g)
@@ -362,6 +363,11 @@ data Category' : Type -> Type where
   -- semantics(Many a b) = ( semantics(b), semantics(a -> Many a b) )
   -- semantics(Many a b) = ( semantics(b), semantics(a) -> semantics(Many a b) )
   Many' : Category' a -> Category' b -> Category' (Moore a b)
+  -- Many1 a b c ~ a | b -> Many b c
+  -- semantics(Many1 a b c) ~ semantics(a | b -> Many b c)
+  -- semantics(Many1 a b c) ~ ( semantics(a), semantics(b -> Many b c) )
+  -- semantics(Many1 a b c) ~ ( semantics(a), semantics(b) -> semantics(Many b c) )
+  Many1' : Category' a -> Category' b -> Category' c -> Category' (Moore1 a b c)
 
 is' : (c : Category' a) -> (d : Category' b) -> Maybe (a -> b)
 is' Expression' Expression' = Just id
@@ -377,6 +383,11 @@ is' (Many' a b) (Many' a' b') =
   is' b b'
 is' a (Many' a' b') = (\f, x => assert_total $ constM (f x)) <$> is' a b'
 is' (Many' a b) a' = (\f, (MkMoore x _) => f x) <$> is' b a'
+-- is' (Many1' a b c) (Many1' a' b' c') =
+  -- (\f, g, h, (MkMoore1 x y) => MkMoore1 (h x) (dimap f g . y . f)) <$>
+  -- is' (assert_smaller (Many1' a b c) b') b <*>
+  -- is' c c' <*>
+  -- is' a a'
 is' (Union' a b) c =
   (. fst) <$> is' a c <|> (. snd) <$> is' b c
 is' a (Union' b c) =
@@ -399,79 +410,74 @@ record Grammar' e where
   topLevel' : Category' e
 
 parse : Grammar' e -> List String -> List e
-parse g = go (topLevel' g) Nothing
+parse g = go (topLevel' g) []
   where
     go :
       Category' e ->
-      Maybe (a : Type ** x : a ** Category' a) ->
+      List (a : Type ** x : a ** Category' a) ->
       List String ->
       List e
-    go goal Nothing [] = []
-    go goal Nothing (x :: xs) =
-      case infer' g x of
-        Nothing => []
-        Just tm => go goal (Just tm) xs
-    go goal (Just (_ ** tm ** cat)) [] =
+    go goal [] [] = []
+    go goal ((_ ** tm ** Union' a b) :: ks) xs =
+      assert_total $
+        go goal ((_ ** fst tm ** a) :: ks) xs ++
+        go goal ((_ ** snd tm ** b) :: ks) xs
+    go goal ((_ ** tm ** Many' a b) :: ks) xs =
+      case tm of
+        MkMoore v f =>
+          assert_total $
+            go goal ((_ ** v ** b) :: ks) xs ++
+            go goal ((_ ** f ** Arrow' a (Many' a b)) :: ks) xs
+    go goal [(_ ** tm ** cat)] [] =
       case is' cat goal of
         Nothing => []
         Just f => [f tm]
-    go goal (Just (_ ** tm ** cat)) (x :: xs) =
-      case cat of
-        Arrow' a b =>
-          case infer' g x of
-            Nothing => []
-            Just (_ ** tm' ** Arrow' a' b') =>
-              case is' b' a of
+    go goal ((_ ** tm ** cat) :: (_ ** tm' ** Arrow' a b) :: ks) xs =
+      case is' cat a of
+        Nothing =>
+          case xs of
+            [] => []
+            c :: cs =>
+              case infer' g c of
                 Nothing => []
-                Just f => go goal (Just (_ ** tm . f . tm' ** Arrow' a' b)) xs
-            Just (_ ** tm' ** Many' a' b') =>
-              case is' (Many' a' b') a of
-                Nothing => []
-                Just f =>
-                  case tm' of
-                    MkMoore v h =>
-                      assert_total $
-                      go goal (Just (_ ** tm (f (constM v)) ** b)) xs ++
-                      go goal (Just (_ ** tm . f . h ** Arrow' a' b)) xs
-            Just (_ ** tm' ** Union' a' b') =>
-              assert_total $
-              (case is' a' a of
-                 Nothing => []
-                 Just f => go goal (Just (_ ** tm (f $ fst tm') ** b)) xs) ++
-              (case is' b' a of
-                 Nothing => []
-                 Just f => go goal (Just (_ ** tm (f $ snd tm') ** b)) xs)
-            Just (_ ** tm' ** cat') =>
-              case is' cat' a of
-                Nothing => []
-                Just f => go goal (Just (_ ** tm (f tm') ** b)) xs
-        Union' a b =>
+                Just v => go goal (v :: (_ ** tm ** cat) :: (_ ** tm' ** Arrow' a b) :: ks) cs
+        Just f =>
           assert_total $
-          go goal (Just (_ ** fst tm ** a)) (x :: xs) ++
-          go goal (Just (_ ** snd tm ** b)) (x :: xs)
-        Many' a b =>
-          case tm of
-            MkMoore v f =>
-              assert_total $
-              go goal (Just (_ ** v ** b)) (x :: xs) ++
-              go goal (Just (_ ** f ** Arrow' a (Many' a b))) (x :: xs)
-        Exact' s => if x == s then go goal Nothing xs else []
-        _ => []
+          go goal ((_ ** tm' (f tm) ** b) :: ks) xs
+    go goal ks (c :: cs) =
+      case infer' g c of
+        Nothing => []
+        Just v =>
+          assert_total $
+          go goal (v :: ks) cs
+    go goal ks [] = []
 
+-- foldlM f b
+--
+-- MkMoore b $ \a =>
+-- MkMoore (f b a) $ \a' =>
+-- MkMoore (f (f b a) a') $ \a'' =>
+-- MkMoore (f (f (f b a) a') a'') $ ...
 foldlM : (b -> a -> b) -> b -> Moore a b
-foldlM f a = assert_total $ MkMoore a $ foldlM f . f a
+foldlM f b = assert_total $ MkMoore b $ \a => foldlM f (f b a)
+
+-- foldrM f b
+--
+-- MkMoore b $ \a =>
+-- MkMoore (f a b) $ \a' =>
+-- MkMoore (f a (f a' b)) $ \a'' =>
+-- MkMoore (f a (f a' (f a'' b))) $ ...
+foldrM : (a -> b -> b) -> b -> Moore a b
+foldrM f b = assert_total $ MkMoore b $ \a => foldrM f (f a b)
+
+iterateM : (b -> b) -> b -> Moore b b
+iterateM f a = assert_total $ MkMoore a $ iterateM f . f
 
 testGrammar : Grammar' Expr
 testGrammar = MkGrammar' infer'' Expression'
   where
     infer'' : String -> Maybe (a : Type ** x : a ** Category' a)
-    -- works
-    -- infer'' a = Just (_ ** (V a, foldlM App (V a)) ** Union' Atom' (Many' Atom' Expression'))
-    infer'' "(" = Just (_ ** \e, _ => e ** Arrow' Expression' (Arrow' (Exact' ")") Expression'))
-    infer'' a =
-      if all isAlpha (unpack a)
-      then Just (_ ** V a ** Atom')
-      else Just (_ ** a ** Exact' a)
+    infer'' a = Just (_ ** foldlM App (V a) ** Many' Expression' Expression')
 
 lc' : Grammar' Expr
 lc' = MkGrammar' infer'' Expression'
@@ -482,15 +488,16 @@ lc' = MkGrammar' infer'' Expression'
       then
         Just
           ( _ **
-            let x = I (cast cs) in (the Expr x, foldlM App x) **
-            Union' Atom' (Many' Atom' Expression')
+            let val = the Expr $ I (cast cs) in
+            ( val, \e => (`apply` val) <$> foldlM (\x, y => \z => App (x z) y) (`App` e) ) **
+            Union' Atom' (Arrow' Atom' (Many' Atom' Expression'))
           )
       else if all isAlpha (unpack cs)
       then
         Just
           ( _ **
-            (cs, foldlM App (V cs)) **
-            Union' Ident' (Many' Atom' Expression')
+            ( cs, \e => (`apply` V cs) <$> foldlM (\x, y => \z => App (x z) y) (`App` e) ) **
+            Union' Ident' (Arrow' Atom' (Many' Atom' Expression'))
           )
       else case cs of
         "\\" =>
@@ -502,138 +509,13 @@ lc' = MkGrammar' infer'' Expression'
         "(" =>
           Just
             ( _ **
-              -- \e, _ => foldlM App e **
-              \e, _ => e **
+              \e, _ => foldlM App e **
               Arrow'
                 Expression'
                 (Arrow'
                    (Exact' ")")
-                   Expression')
-                   -- (Many'
-                      -- Atom'
-                      -- Expression'))
+                   (Many'
+                      Atom'
+                      Expression'))
             )
         _ => Just (_ ** cs ** Exact' cs)
-
-
-{-
-Path : Type
-Path = List Nat
-
-data Node : Type where
-  Bot : Node
-  Top : Node
-  Arr : Node -> Node -> Node
-  V : String -> Node
-
-arity : Node -> Nat
-arity Bot = 0
-arity Top = 0
-arity (Arr _ _) = 2
-arity (V _) = 0
-
-Tree : Type
-Tree = Path -> Maybe Node
-
-All : (a -> Type) -> List a -> Type
-All p [] = ()
-All p (x :: xs) = (p x, All p xs)
-
-PrefixClosed : Tree -> Type
-PrefixClosed t =
-  (p : Path) ->
-  IsJust (t p) ->
-  All (IsJust . t) (inits p)
-
-zeroToI : (i : Nat) -> List Nat
-zeroToI Z = []
-zeroToI (S n) = enumFromTo 0 n
-
-Siblings : Tree -> Type
-Siblings t =
-  (p : Path) ->
-  case t p of
-    Nothing => ()
-    Just l => All (\a => IsJust (t (p ++ [a]))) (zeroToI (arity l))
-
-data Ty = TyVar String | TyBot | TyTop | TyArr Ty Ty | TyMu String Ty
-
-substTy : String -> Ty -> Ty -> Ty
-substTy s new (TyVar s') = if s == s' then new else TyVar s'
-substTy s new (TyArr a b) = TyArr (substTy s new a) (substTy s new b)
-substTy s new (TyMu n a) =
-  if s == n
-  then TyMu n a
-  else TyMu n (substTy s new a)
-substTy _ _ a = a
-
-T : Ty -> Node
-T TyBot = Bot
-T TyTop = Top
-T (TyVar a) = V a
-T (TyArr a b) = Arr (T a) (T b)
-T (TyMu t a) =
-  if nestedMus t a
-  then Bot
-  else assert_total $ T (substTy t (TyMu t a) a)
-  where
-    nestedMus' : String -> Ty -> Bool
-    nestedMus' t (TyMu t' a) = t /= t' && nestedMus' t a
-    nestedMus' t (TyVar t') = t == t'
-    nestedMus' _ _ = False
-
-    nestedMus : String -> Ty -> Bool
-    nestedMus t (TyMu t' a) = t /= t' && nestedMus' t a
-    nestedMus _ _ = False
-
-data Category' : Type -> Type where
-  Expression' : Category' Expr
-  Atom' : Category' Expr
-  Ident' : Category' String
-  Empty' : Category' Void
-  Exact' : String -> Category' String
-
-  Var' : String -> Category' String
-  Union' : Category' a -> Category' b -> Category' (Either a b)
-  Many' : Category' a -> Category' b -> Category' c -> Category' (List b -> c)
-  Arrow' : Category' a -> Category' b -> Category' (a -> b)
-
-record Grammar' a where
-  constructor MkGrammar'
-  infer' : String -> Maybe (t : Type ** x : t ** Category' t)
-  topLevel' : Category' a
-
-lc' : Grammar' Expr
-lc' = MkGrammar' infer'' Expression'
-  where
-    infer'' : String -> Maybe (t : Type ** x : t ** Category' t)
-    infer'' ds =
-      if isCons (unpack ds) && all isDigit (unpack ds)
-      then
-        -- (Mu "x" (Arrow Expression (Union Expression (Var "x"))))
-        Just (_ ** (foldl App (I $ cast ds)) ** Many' Atom' Atom' Expression')
-      else
-      if isCons (unpack ds) && all isAlpha (unpack ds)
-      then
-        -- (Mu "x" (Arrow Expression (Union Expression (Var "x"))))
-        Just (_ ** (foldl App (V ds)) ** Many' Ident' Atom' Expression')
-      else
-        case ds of
-        "\\" =>
-          Just (_ **
-           (\x, _, e => Lam x e) **
-           Arrow' Ident' (Arrow' (Exact' ".") (Arrow' Expression' Expression')))
-        "(" =>
-          Just (_ **
-           (\e, _ => foldl App e) **
-           Arrow'
-             Expression'
-             (Arrow'
-               (Exact' ")")
-               (Many'
-                 Atom'
-                 Atom'
-                 Expression')))
-                -- (Mu "x" (Arrow Atom (Union Expression (Var "x"))))))
-        _ => Nothing
-   -}
