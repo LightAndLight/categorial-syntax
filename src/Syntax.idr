@@ -345,7 +345,7 @@ dimap f g (MkMoore x y) = assert_total $ MkMoore (g x) (dimap f g . y . f)
 
 partial
 constM : b -> Moore a b
-constM x = MkMoore x (\_ => constM x)
+constM x = let val = MkMoore x (\_ => val) in val
 
 takeM : List a -> Moore a b -> List b
 takeM [] _ = []
@@ -358,16 +358,7 @@ data Category' : Type -> Type where
   Exact' : String -> Category' String
   Union' : Category' a -> Category' b -> Category' (a, b)
   Arrow' : Category' a -> Category' b -> Category' (a -> b)
-  -- Many a b ~ b | a -> Many a b
-  -- semantics(Many a b) = semantics(b | a -> Many a b)
-  -- semantics(Many a b) = ( semantics(b), semantics(a -> Many a b) )
-  -- semantics(Many a b) = ( semantics(b), semantics(a) -> semantics(Many a b) )
   Many' : Category' a -> Category' b -> Category' (Moore a b)
-  -- Many1 a b c ~ a | b -> Many b c
-  -- semantics(Many1 a b c) ~ semantics(a | b -> Many b c)
-  -- semantics(Many1 a b c) ~ ( semantics(a), semantics(b -> Many b c) )
-  -- semantics(Many1 a b c) ~ ( semantics(a), semantics(b) -> semantics(Many b c) )
-  Many1' : Category' a -> Category' b -> Category' c -> Category' (Moore1 a b c)
 
 is' : (c : Category' a) -> (d : Category' b) -> Maybe (a -> b)
 is' Expression' Expression' = Just id
@@ -383,11 +374,6 @@ is' (Many' a b) (Many' a' b') =
   is' b b'
 is' a (Many' a' b') = (\f, x => assert_total $ constM (f x)) <$> is' a b'
 is' (Many' a b) a' = (\f, (MkMoore x _) => f x) <$> is' b a'
--- is' (Many1' a b c) (Many1' a' b' c') =
-  -- (\f, g, h, (MkMoore1 x y) => MkMoore1 (h x) (dimap f g . y . f)) <$>
-  -- is' (assert_smaller (Many1' a b c) b') b <*>
-  -- is' c c' <*>
-  -- is' a a'
 is' (Union' a b) c =
   (. fst) <$> is' a c <|> (. snd) <$> is' b c
 is' a (Union' b c) =
