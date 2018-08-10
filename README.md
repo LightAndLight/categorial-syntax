@@ -6,5 +6,5 @@ Categorial grammars treat words like datatypes. For example, `man : Noun` and `h
 This means that a grammar is a map from String to WordType. I think specifying grammars in this way
 would make it easier to write a programming language with extensible syntax. 
 
-Currently I have a pretty specialized recognizer for a grammar written in the categorial style, but I have
-no idea how to build a parse tree using that algorithm.
+This repo contains a library for specifying and parsing categorial grammars.
+See `examples` for what that looks like.
