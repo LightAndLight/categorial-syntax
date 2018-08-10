@@ -16,13 +16,20 @@ build-type:          Simple
 extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
--- library
-executable app
-  -- exposed-modules:     Syntax
-  -- other-modules:
-  -- other-extensions:
+executable example
+  build-depends:       base >=4.9 && <5, categorial-syntax
+  hs-source-dirs:      example
+  main-is:             Example.hs
+  ghc-options:         -O
+  default-language:    Haskell2010
+
+library
+  exposed-modules:     Control.Moore
+                     , Data.Exists
+                     , Data.Sigma
+                     , Language.Category
   build-depends:       base >=4.9 && <5
+                     , profunctors >=5.2 && <5.3
   hs-source-dirs:      src
-  main-is:             Syntax.hs
   ghc-options:         -O
   default-language:    Haskell2010
