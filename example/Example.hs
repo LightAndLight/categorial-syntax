@@ -23,19 +23,19 @@ instance IsCategory SExpT where
   step_ (Sigma _ AtomS) = Operand
 
 sexp :: Grammar (Cat SExpT) SExp
-sexp = MkGrammar infer (C' AtomS)
+sexp = MkGrammar infer (C AtomS)
   where
     infer :: String -> Maybe (Sigma (Cat SExpT))
     infer str
-      | all isLetter str = Just $ Sigma (Str str) (C' AtomS)
+      | all isLetter str = Just $ Sigma (Str str) (C AtomS)
       | otherwise =
           case str of
             "(" ->
               Just $
               Sigma
                 (foldrM (\a b s -> Cons a (b s)) (\_ -> Nil))
-                (Many' (C' AtomS) (Arrow' (Exact' ")") (C' AtomS)))
-            _ -> Just $ Sigma str (Exact' str)
+                (Many (C AtomS) (Exact ")" +> C AtomS))
+            _ -> Just $ Sigma str (Exact str)
 
 parseSexp :: String -> [SExp]
 parseSexp = parse sexp . words
@@ -67,7 +67,7 @@ instance IsCategory ExprT where
   step_ = const Operand
 
 lc :: Grammar (Cat ExprT) Expr
-lc = MkGrammar infer (C' ExprE)
+lc = MkGrammar infer (C ExprE)
   where
     infer :: String -> Maybe (Sigma (Cat ExprT))
     infer cs
@@ -79,30 +79,26 @@ lc = MkGrammar infer (C' ExprE)
                 , \e -> foldlM App (App val e)
                 )
               )
-              (Union' (C' AtomE) (Arrow' (C' AtomE) (Many' (C' AtomE) (C' ExprE))))
+              (C AtomE +| (C AtomE +> Many (C AtomE) (C ExprE))
       | all isLetter cs =
           Just $
             Sigma
               ( cs, \e -> foldlM App (App (V cs) e))
-              (Union' (C' IdentE) (Arrow' (C' AtomE) (Many' (C' AtomE) (C' ExprE))))
+              (C IdentE +| (C AtomE +> Many (C AtomE) (C ExprE)))
       | otherwise =
           case cs of
             "\\" ->
               Just $
                 Sigma
                   (\x _ e -> Lam x e)
-                  (Arrow' (C' IdentE) (Arrow' (Exact' ".") (Arrow' (C' ExprE) (C' ExprE))))
+                  (C IdentE +> Exact "." +> C ExprE +> C ExprE)
             "(" ->
               Just $
                 Sigma
                   (\e _ -> (e, \e' -> foldlM App (App e e')))
-                  (Arrow'
-                    (C' ExprE)
-                    (Arrow'
-                        (Exact' ")")
-                        (Union' (C' AtomE)
-                         (Arrow' (C' AtomE) (Many' (C' AtomE) (C' ExprE))))))
-            _ -> Just $ Sigma cs (Exact' cs)
+                  (C ExprE +> Exact ")" +>
+                   C AtomE +| (C AtomE +> Many (C AtomE) (C ExprE)))
+            _ -> Just $ Sigma cs (Exact cs)
 
 parseLc :: String -> [Expr]
 parseLc = parse lc . words

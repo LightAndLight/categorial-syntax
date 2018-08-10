@@ -15,6 +15,21 @@ data Grammar c e
   , topLevel :: c e
   }
 
+data Cat c a where
+  Many :: Cat c a -> Cat c b -> Cat c (Moore a b)
+  Union :: Cat c a -> Cat c b -> Cat c (a, b)
+  Arrow :: Cat c a -> Cat c b -> Cat c (a -> b)
+  Exact :: String -> Cat c String
+  C :: c a -> Cat c a
+
+(+>) :: Cat c a -> Cat c b -> Cat c (a -> b)
+(+>) = Arrow
+infixr 5 +>
+
+(+|) :: Cat c a -> Cat c b -> Cat c (a, b)
+(+|) = Union
+infixr 6 +|
+
 data Operator c where
   MkOperator :: c a -> c b -> (a -> b) -> Operator c
 
@@ -34,62 +49,58 @@ class IsCategory c where
   step_ :: Sigma c -> Action c
 
 mapCat :: (forall x. f x -> g x) -> Cat f a -> Cat g a
-mapCat f (Many' a b) = Many' (mapCat f a) (mapCat f b)
-mapCat f (Union' a b) = Union' (mapCat f a) (mapCat f b)
-mapCat f (Arrow' a b) = Arrow' (mapCat f a) (mapCat f b)
-mapCat _ (Exact' s) = Exact' s
-mapCat f (C' a) = C' (f a)
-
-data Cat c a where
-  Many' :: Cat c a -> Cat c b -> Cat c (Moore a b)
-  Union' :: Cat c a -> Cat c b -> Cat c (a, b)
-  Arrow' :: Cat c a -> Cat c b -> Cat c (a -> b)
-  Exact' :: String -> Cat c String
-  C' :: c a -> Cat c a
+mapCat f (Many a b) = Many (mapCat f a) (mapCat f b)
+mapCat f (Union a b) = Union (mapCat f a) (mapCat f b)
+mapCat f (Arrow a b) = Arrow (mapCat f a) (mapCat f b)
+mapCat _ (Exact s) = Exact s
+mapCat f (C a) = C (f a)
 
 instance IsCategory c => IsCategory (Cat c) where
-  is_ (Exact' s) (Exact' s')
+  is_ (Exact s) (Exact s')
     | s == s' = Just id
     | otherwise = Nothing
-  is_ (Many' a b) (Many' a' b') =
+  is_ (Many a b) (Many a' b') =
     dimap <$>
     is_ a' a <*>
     is_ b b'
-  is_ a (Many' _ b') = (\f x -> constM (f x)) <$> is_ a b'
-  is_ (Many' _ b) a' = (\f (Moore x _) -> f x) <$> is_ b a'
-  is_ (Union' a b) c =
+  is_ a (Many _ b') = (\f x -> constM (f x)) <$> is_ a b'
+  is_ (Many _ b) a' = (\f (Moore x _) -> f x) <$> is_ b a'
+  is_ (Union a b) c =
     (. fst) <$> is_ a c <|> (. snd) <$> is_ b c
-  is_ a (Union' b c) =
+  is_ a (Union b c) =
     (\f g a' -> (f a', g a')) <$>
     is_ a b <*>
     is_ a c
-  is_ (Arrow' a b) (Arrow' a' b') =
+  is_ (Arrow a b) (Arrow a' b') =
     (\f g h -> g . h . f) <$>
     is_ a' a <*>
     is_ b b'
-  is_ (C' a) (C' b) = is_ a b
+  is_ (C a) (C b) = is_ a b
   is_ _ _ = Nothing
 
-  result_ (Union' a b) =
+  result_ (Union a b) =
     case result_ a of
       Exists a' ->
         case result_ b of
-          Exists b' -> Exists (Union' a' b')
-  result_ (Arrow' _ b) = result_ b
-  result_ (Many' _ b) = result_ b
-  result_ (C' e) =
+          Exists b' -> Exists (Union a' b')
+  result_ (Arrow _ b) = result_ b
+  result_ (Many _ b) = result_ b
+  result_ (C e) =
     case result_ e of
-      Exists e' -> Exists (C' e')
+      Exists e' -> Exists (C e')
   result_ a = Exists a
 
   step_ (Sigma tm cat) =
     case cat of
-      Arrow' a b -> Operator $ MkOperator a b tm
-      Union' a b -> Subgoals [Sigma (fst tm) a, Sigma (snd tm) b]
-      Many' a b ->
-        let Moore v rest = tm in Subgoals [Sigma (v, rest) (Union' b (Arrow' a cat))]
-      C' a ->
-        mapAction C' $ step_ (Sigma tm a)
+      Arrow a b -> Operator $ MkOperator a b tm
+      Union a b -> Subgoals [Sigma (fst tm) a, Sigma (snd tm) b]
+      Many a b ->
+        let
+          Moore v rest = tm
+        in
+          Subgoals [Sigma (v, rest) (Union b (Arrow a cat))]
+      C a ->
+        mapAction C $ step_ (Sigma tm a)
       _ -> Operand
 
 {-
