@@ -11,9 +11,13 @@ import Data.Sigma
 
 data Grammar c e
   = MkGrammar
-  { infer :: String -> Maybe (Sigma c)
-  , topLevel :: c e
+  { _lexicon :: String -> Maybe (Sigma c)
+  , _default :: String -> Sigma c
+  , _topLevel :: c e
   }
+
+extendLexicon :: (String -> Maybe (Sigma c)) -> Grammar c e -> Grammar c e
+extendLexicon f g = g { _lexicon = (<|>) <$> _lexicon g <*> f }
 
 data Cat c a where
   Many :: Cat c a -> Cat c b -> Cat c (Moore a b)
@@ -211,18 +215,18 @@ parse grammar b = parse' b Nothing []
       -> [Operator c] -- ^ Operator stack
       -> [e]
     parse' [] (Just (Sigma tm cat)) [] =
-      case is_ cat (topLevel grammar) of
+      case is_ cat (_topLevel grammar) of
         Nothing -> []
         Just f -> [f tm]
     parse' (i:input) Nothing operators =
-      case infer grammar i of
-        Nothing -> []
+      case _lexicon grammar i of
+        Nothing -> parse' input (Just $ _default grammar i) operators
         Just v -> parse' input (Just v) operators
     parse' input (Just s@(Sigma tm cat)) operators =
       let
         goal =
           case operators of
-            [] -> Exists $ topLevel grammar
+            [] -> Exists $ _topLevel grammar
             MkOperator a _ _ : _ -> Exists a
       in
         case goal of

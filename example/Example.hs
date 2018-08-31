@@ -23,10 +23,12 @@ instance IsCategory SExpT where
   step_ (Sigma _ AtomS) = Operand
 
 sexp :: Grammar (Cat SExpT) SExp
-sexp = MkGrammar infer (C AtomS)
+sexp = MkGrammar lexicon def (C AtomS)
   where
-    infer :: String -> Maybe (Sigma (Cat SExpT))
-    infer str
+    def str = Sigma str (Exact str)
+
+    lexicon :: String -> Maybe (Sigma (Cat SExpT))
+    lexicon str
       | all isLetter str = Just $ Sigma (Str str) (C AtomS)
       | otherwise =
           case str of
@@ -35,7 +37,7 @@ sexp = MkGrammar infer (C AtomS)
               Sigma
                 (foldrM (\a b s -> Cons a (b s)) (\_ -> Nil))
                 (Many (C AtomS) (Exact ")" +> C AtomS))
-            _ -> Just $ Sigma str (Exact str)
+            _ -> Nothing
 
 parseSexp :: String -> [SExp]
 parseSexp = parse sexp . words
@@ -67,10 +69,12 @@ instance IsCategory ExprT where
   step_ = const Operand
 
 lc :: Grammar (Cat ExprT) Expr
-lc = MkGrammar infer (C ExprE)
+lc = MkGrammar lexicon def (C ExprE)
   where
-    infer :: String -> Maybe (Sigma (Cat ExprT))
-    infer cs
+    def cs = Sigma cs (Exact cs)
+
+    lexicon :: String -> Maybe (Sigma (Cat ExprT))
+    lexicon cs
       | all isDigit cs =
           Just $
             Sigma
@@ -79,7 +83,7 @@ lc = MkGrammar infer (C ExprE)
                 , \e -> foldlM App (App val e)
                 )
               )
-              (C AtomE +| (C AtomE +> Many (C AtomE) (C ExprE))
+              (C AtomE +| (C AtomE +> Many (C AtomE) (C ExprE)))
       | all isLetter cs =
           Just $
             Sigma
@@ -98,7 +102,7 @@ lc = MkGrammar infer (C ExprE)
                   (\e _ -> (e, \e' -> foldlM App (App e e')))
                   (C ExprE +> Exact ")" +>
                    C AtomE +| (C AtomE +> Many (C AtomE) (C ExprE)))
-            _ -> Just $ Sigma cs (Exact cs)
+            _ -> Nothing
 
 parseLc :: String -> [Expr]
 parseLc = parse lc . words

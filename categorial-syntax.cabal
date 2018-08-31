@@ -37,7 +37,6 @@ library
                      , Data.Exists
                      , Data.Sigma
                      , Language.Category
-                     , Language.Category.HOAS
   build-depends:       base >=4.9 && <5
                      , profunctors >=5.2 && <5.3
   hs-source-dirs:      src
